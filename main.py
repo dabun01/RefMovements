@@ -3,7 +3,6 @@ import mediapipe as mp
 import numpy as np
 import os
 
-
 # ============================================================================
 # CONFIGURATION SETTINGS
 # ============================================================================
@@ -18,7 +17,6 @@ WINDOW_HEIGHT = 720
 
 mp_pose = mp.solutions.pose # type: ignore
 mp_drawing = mp.solutions.drawing_utils # type: ignore
-
 
 # ============================================================================
 # DETECTION FUNCTIONS
@@ -263,8 +261,66 @@ def technical_foul_violation(landmarks):
     else:
         return False
 
+def blocking_violation(landmarks):
+    """
+    Placeholder for blocking violation detection logic.
+    
+    Args:
+        landmarks: MediaPipe pose landmarks object containing 33 3D points
+    Returns:
+        bool: True if blocking violation is detected, False otherwise
+    """
+    left_wrist = landmarks[mp_pose.PoseLandmark.LEFT_WRIST]
+    right_wrist = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST]
+    left_hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP]
+    right_hip = landmarks[mp_pose.PoseLandmark.RIGHT_HIP]
 
+    arms_at_hip_level = (
+        abs(left_wrist.y - left_hip.y) < 0.1 and
+        abs(right_wrist.y - right_hip.y) < 0.1
+    )
+    if arms_at_hip_level:
+        return True
+    else:
+        return False
 
+# ============================================================================
+# Prepare the images
+# ============================================================================
+print("=" * 60)
+print("Basketball Referee Call Detection System")
+print("=" * 60)
+
+#Load images from the images folder
+travel_img = cv2.imread(os.path.join('images', 'travel.png'))
+carry_img = cv2.imread(os.path.join('images', 'carrying.jpg'))
+tech_foul_img = cv2.imread(os.path.join('images', 'technicalFoul.jpg'))
+head_tap_img = cv2.imread(os.path.join('images', 'headTap.png'))
+blocking_img = cv2.imread(os.path.join('images', 'blocking.jpg'))
+
+#Verify images loaded correctly
+if travel_img is None:
+    print("Error: Could not load travel.png")
+    exit()
+if carry_img is None:
+    print("Error: Could not load carrying.jpg")
+    exit()
+if tech_foul_img is None:
+    print("Error: Could not load technicalFoul.jpg")
+    exit()
+if head_tap_img is None:
+    print("Error: Could not load headTap.png")
+    exit()
+if blocking_img is None:
+    print("Error: Could not load blocking.jpg")
+    exit()
+
+# Resize images to fit window
+travel_img = cv2.resize(travel_img, (WINDOW_WIDTH, WINDOW_HEIGHT))
+carry_img = cv2.resize(carry_img, (WINDOW_WIDTH, WINDOW_HEIGHT))
+tech_foul_img = cv2.resize(tech_foul_img, (WINDOW_WIDTH, WINDOW_HEIGHT))
+head_tap_img = cv2.resize(head_tap_img, (WINDOW_WIDTH, WINDOW_HEIGHT))
+blocking_img = cv2.resize(blocking_img, (WINDOW_WIDTH, WINDOW_HEIGHT))
 
 # ============================================================================
 # WEB CAMERA SETUP
@@ -280,6 +336,8 @@ cv2.namedWindow('Image Output', cv2.WINDOW_NORMAL)
 cv2.resizeWindow('Camera Feed', WINDOW_WIDTH, WINDOW_HEIGHT)
 cv2.resizeWindow('Image Output', WINDOW_WIDTH, WINDOW_HEIGHT)
 
+current_image = head_tap_img.copy()
+
 print("Starting webcam feed...")
 print("Press 'q' to quit.")
 
@@ -287,6 +345,8 @@ print("Press 'q' to quit.")
 # MAIN LOOP
 # ============================================================================
 draw_landmarks = False
+current_video = None   
+video_playing = False
 
 with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose:
 
@@ -305,17 +365,30 @@ with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as 
         if results_pose.pose_landmarks:
             # Get pose landmarks
             landmarks = results_pose.pose_landmarks.landmark
-            # Check for head tap gesture
+
             if twenty_four_second_violation(landmarks):
-                current_state = "HEAD_TAP"
+                current_image = head_tap_img.copy()
+                cv2.putText(frame, "Head Tap Detected", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
             elif traveling_violation(landmarks):
-                current_state = "TRAVEL CALL"
+                current_image = travel_img.copy()
+                cv2.putText(frame, "TRAVEL CALL Detected", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
             elif carrying_violation(landmarks):
-                current_state = "CARRYING CALL"
+                current_image = carry_img.copy()
+                cv2.putText(frame, "CARRYING CALL Detected", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
+            elif blocking_violation(landmarks):
+                current_image = blocking_img.copy()
+                cv2.putText(frame, "BLOCKING CALL Detected", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
             elif technical_foul_violation(landmarks):
-                current_state = "TECHNICAL FOUL"
+                current_video = cv2.VideoCapture(os.path.join('images', 'shaqTech.mp4'))
+                video_playing = True
+                cv2.putText(frame, "TECHNICAL FOUL Detected", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
             # Draw pose landmarks
-            if cv2.waitKey(3) & 0xFF == ord('s'):
+            if cv2.waitKey(2) & 0xFF == ord('s'):
                 draw_landmarks = not draw_landmarks
 
             if draw_landmarks == True:
@@ -327,16 +400,21 @@ with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as 
                     mp_drawing.DrawingSpec(color=(245,66,230), thickness=2, circle_radius=2)
                 )
 
-        if current_state == "HEAD_TAP":
-            cv2.putText(frame, "Head Tap Detected", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        if current_state == "TRAVEL CALL":
-            cv2.putText(frame, "TRAVEL CALL Detected", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        if current_state == "CARRYING CALL":
-            cv2.putText(frame, "CARRYING CALL Detected", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        if current_state == "TECHNICAL FOUL":
-            cv2.putText(frame, "TECHNICAL FOUL Detected", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-
         cv2.imshow('Camera Feed', frame)
+
+        if video_playing and current_video is not None:
+            ret, vid_frame = current_video.read()
+            if ret:
+                vid_frame = cv2.resize(vid_frame, (WINDOW_WIDTH, WINDOW_HEIGHT))
+                cv2.imshow('Image Output', vid_frame)
+            else:
+                # End of video → stop playback and clear video
+                current_video.release()
+                current_video = None
+                video_playing = False
+        else:
+            # show default image (static)
+            cv2.imshow('Image Output', current_image)
 
         if cv2.waitKey(5) & 0xFF == ord('q'):
             break
